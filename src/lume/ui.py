@@ -17,6 +17,7 @@ from __future__ import annotations
 import io
 import json
 import os
+from pathlib import Path
 from typing import Any, Iterator
 
 import requests
@@ -454,7 +455,8 @@ def _stream_generator(prompt_text: str, att_ids: list[int], files_meta: list[dic
 
 # ---- entrypoint ----
 
-def main() -> None:
+def run() -> None:
+    """Streamlit app body. Invoked by `streamlit run` (which sets up the script runtime)."""
     st.set_page_config(
         page_title="Lume",
         page_icon="✨",
@@ -508,6 +510,27 @@ def main() -> None:
             text = str(prompt)
         if text or files or audio:
             do_chat(text, files, audio)
+
+
+def main() -> None:
+    """Console-script entrypoint. Boots `streamlit run` on this file."""
+    import sys
+    from streamlit.web import cli as stcli
+
+    # Skip the first-run email onboarding prompt by pre-seeding credentials.
+    creds = os.path.expanduser("~/.streamlit/credentials.toml")
+    if not os.path.exists(creds):
+        os.makedirs(os.path.dirname(creds), exist_ok=True)
+        Path(creds).write_text("[general]\nemail = \"\"\n", encoding="utf-8")
+
+    script = __file__
+    sys.argv = [
+        "streamlit", "run", script,
+        "--server.headless", "true",
+        "--server.port", "8501",
+        "--browser.gatherUsageStats", "false",
+    ]
+    stcli.main()
 
 
 if __name__ == "__main__":
