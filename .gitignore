@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Lume data
+.env
+data/lume.db
+data/attachments/*
+!data/.gitkeep
+data/voice/*
