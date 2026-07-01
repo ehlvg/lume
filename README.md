@@ -8,6 +8,10 @@ deliberately small surface area: callers never pick a model, never deal with Oll
 options, and never have to assemble message history — they pass a prompt (optionally with
 files/voice) inside a thread, and Lume streams typed SSE events back.
 
+A bundled Streamlit web UI (`ui.py`) gives you a ChatGPT-like daily driver on top of the
+API — threads sidebar, file + audio attachments, streaming replies, tool-call visibility,
+and voice output.
+
 ## Features
 
 - **Single model** — configured server-side, never sent by the client.
@@ -46,6 +50,33 @@ ollama run   gemma4:12b-mlx  # keep it warm in another terminal
 # 4. run
 uv run lume         # or: uv run python main.py
 ```
+
+## Web UI
+
+A Streamlit chat app lives in `src/lume/ui.py`. It talks to the Lume API over HTTP and
+gives you a daily-driver chat interface with:
+
+- **Threads sidebar** — create, rename, delete, switch; history auto-restores on switch.
+- **Streaming replies** — token-by-token typewriter via `st.write_stream`.
+- **File + audio attachments** — `st.chat_input` with `accept_file="multiple"` and
+  `accept_audio=True`; uploads go to the API, which transcribes voice server-side.
+- **Tool-call visibility** — each tool round renders as a collapsible `st.status` showing
+  the call args and result.
+- **Voice replies** — toggle 🔊 in the sidebar; the API synthesizes TTS and the UI
+  autoplays the returned WAV.
+- **System prompt** — editable in the sidebar, sent with each request.
+- **Themed** — Lume brand colors in `.streamlit/config.toml`, emoji avatars (🧑‍💻 user,
+  ✨ assistant).
+
+```bash
+# start the API first (see Quick start), then:
+uv run streamlit run src/lume/ui.py
+# or with the console script:
+uv run lume-ui
+```
+
+Open http://localhost:8501, paste your API key, and chat. The server URL defaults to
+`http://127.0.0.1:8000` (override with `LUME_UI_BASE_URL`).
 
 ## API surface
 
@@ -189,6 +220,9 @@ src/lume/
   auth.py           per-client API keys
   db.py             sqlite schema + connection helper
   config.py         pydantic settings
+  ui.py             Streamlit web chat UI
+.streamlit/
+  config.toml       Lume theme (colors, fonts, emoji avatars)
 data/
   lume.db
   attachments/      content-addressed files

@@ -16,6 +16,8 @@ dependencies = [
     "magic-html>=0.1",
     "pypdf>=5.1",
     "pillow>=11.0",
+    "streamlit>=1.45",
+    "requests>=2.32",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +25,10 @@ voice = [
     "supertonic>=1.3",
     "openai-whisper>=20240930",
 ]
+
+[project.scripts]
+lume = "lume.app:main"
+lume-ui = "lume.ui:main"
 
 [tool.uv]
 package = true

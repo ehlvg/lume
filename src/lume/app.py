@@ -255,12 +255,15 @@ async def _emit_loop(
     tools: list[dict] | None,
     voice: bool,
     options: dict | None,
+    thread_id: str | None = None,
 ) -> AsyncIterator[str]:
-    """SSE generator: drives ollama + tool dispatch loop, yields typed events."""
+    """SSE generator: drives ollama + tool dispatch loop, yields typed events.
+    If thread_id is given, persists each assistant + tool turn to the thread as it completes."""
     s = get_settings()
     rounds = 0
     cur_messages = list(messages)
     last_assistant_content = ""
+    final_assistant_text = ""
     while rounds <= s.max_tool_iterations:
         rounds += 1
         assistant_content = ""
@@ -273,11 +276,16 @@ async def _emit_loop(
                 assistant_content = ev["content"]
                 assistant_tool_calls = ev["tool_calls"]
                 last_assistant_content = assistant_content
-        # save assistant turn later by caller; here we just stream
         if not assistant_tool_calls:
+            final_assistant_text = assistant_content
             break
         # emit tool_calls event
         yield _sse({"type": "tool_calls", "tool_calls": assistant_tool_calls})
+        # persist this intermediate assistant turn (with tool_calls) immediately
+        if thread_id:
+            await append_message(thread_id, "assistant",
+                                  content=assistant_content or "",
+                                  tool_calls=assistant_tool_calls)
         # append assistant message with tool_calls for the next round
         cur_messages.append({
             "role": "assistant",
@@ -305,6 +313,9 @@ async def _emit_loop(
                     "content": result,
                     "name": name,
                 })
+                if thread_id:
+                    await append_message(thread_id, "tool", content=result,
+                                          tool_name=name, tool_call_id=tc_id)
             else:
                 # caller-defined tool that the server can't execute — surface a placeholder result
                 # so the model can continue; the caller may intercept the tool_calls event and
@@ -314,7 +325,15 @@ async def _emit_loop(
                 yield _sse({"type": "tool_result", "tool_call_id": tc_id, "name": name,
                             "result": note, "note": "caller_defined"})
                 cur_messages.append({"role": "tool", "content": note, "name": name})
+                if thread_id:
+                    await append_message(thread_id, "tool", content=note,
+                                          tool_name=name, tool_call_id=tc_id)
         # loop continues → model gets tool results and may produce final text or more tool calls
+
+    # persist the final assistant turn (the one without tool calls) before yielding done,
+    # so client disconnects don't lose it. Intermediate tool-call turns are persisted above.
+    if thread_id and final_assistant_text:
+        await append_message(thread_id, "assistant", content=final_assistant_text)
 
     # final: optional voice
     if voice and last_assistant_content:
@@ -423,25 +442,9 @@ async def chat(
     await append_message(thread_id, "user", content=prompt or "", attachment_ids=att_ids)
 
     async def gen() -> AsyncIterator[str]:
-        assistant_text = ""
-        assistant_tool_calls: list = []
         try:
-            async for raw in _emit_loop(messages, tools, voice, options):
-                # we need to parse our own SSE payload back to track state — simpler: re-emit as-is
-                # but capture the assistant text for persistence.
-                # _emit_loop emits pre-serialized JSON strings; parse here to track.
-                ev = json.loads(raw)
-                if ev["type"] == "token":
-                    assistant_text += ev["content"]
-                elif ev["type"] == "tool_calls":
-                    assistant_tool_calls = ev["tool_calls"]
+            async for raw in _emit_loop(messages, tools, voice, options, thread_id=thread_id):
                 yield raw
-            # persist assistant turn
-            await append_message(
-                thread_id, "assistant",
-                content=assistant_text,
-                tool_calls=assistant_tool_calls or None,
-            )
         except httpx.HTTPStatusError as e:
             try:
                 await e.response.aread()
@@ -524,6 +527,8 @@ async def chat_json(
             else:
                 result = f"[server cannot execute tool '{name}']"
             cur.append({"role": "tool", "content": result, "name": name})
+            await append_message(thread_id, "tool", content=result,
+                                  tool_name=name, tool_call_id=tc.get("id") or name)
 
     await append_message(thread_id, "assistant", content=assistant_text,
                           tool_calls=assistant_tool_calls or None)
